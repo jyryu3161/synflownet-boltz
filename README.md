@@ -216,10 +216,169 @@ python precompute_bb_masks.py
 ```
 
 #### Protein Target
-Prepare target protein data:
+
+**Prepare target protein data:**
 - Protein sequence (FASTA format)
 - Multiple Sequence Alignment (MSA) files for Boltz-2
 - Place in `synflownet-boltz-launcher/data/msa_files/`
+
+**Generating MSA Files for Boltz-2:**
+
+Multiple Sequence Alignments (MSA) are crucial for accurate protein structure and binding affinity prediction with Boltz-2. MSA provides evolutionary information that helps the model understand protein structure and function.
+
+**What is MSA?**
+MSA aligns homologous sequences from different organisms to identify conserved regions, which are typically functionally or structurally important. Deeper MSA (more aligned sequences) generally improves prediction confidence.
+
+**MSA File Format:**
+Boltz-2 requires MSA in A3M format, a compact alignment format where:
+- Sequences are separated by `>`
+- Insertions relative to query are in lowercase
+- Deletions are represented by `-`
+
+**Method 1: Using ColabFold (Recommended)**
+
+ColabFold provides the easiest way to generate MSA files:
+
+1. **Install ColabFold:**
+   ```bash
+   # Install localcolabfold
+   git clone https://github.com/YoshitakaMo/localcolabfold.git
+   cd localcolabfold
+   ./install_colabbatch_linux.sh
+   ```
+
+2. **Generate MSA from protein sequence:**
+   ```bash
+   # Activate colabfold environment
+   source colabfold-conda/bin/activate
+
+   # Create FASTA file with your protein sequence
+   cat > my_protein.fasta <<EOF
+   >MY_PROTEIN
+   TVFHKRYLKKIRDLGEGHFGKVSLYCYDPTNDGTGEMVAVKALKAD...
+   EOF
+
+   # Generate MSA (creates my_protein.a3m)
+   colabfold_search my_protein.fasta /path/to/databases ./msa_output
+   ```
+
+   The output will be in `./msa_output/` directory.
+
+3. **Using the public MMseqs2 server (no local database needed):**
+   ```bash
+   # ColabFold can use the public server automatically
+   colabfold_batch my_protein.fasta ./predictions
+   ```
+
+   This will generate MSA files automatically in the predictions folder.
+
+**Method 2: Using MMseqs2 Directly**
+
+For more control or offline usage:
+
+1. **Install MMseqs2:**
+   ```bash
+   conda install -c bioconda mmseqs2
+   ```
+
+2. **Download sequence databases:**
+   ```bash
+   # Download UniRef30 database (recommended for Boltz-2)
+   mkdir databases
+   cd databases
+   mmseqs databases UniRef30 uniref30_db tmp
+   ```
+
+3. **Run MSA search:**
+   ```bash
+   # Create MMseqs2 database from your sequence
+   mmseqs createdb my_protein.fasta queryDB
+
+   # Search against UniRef30
+   mmseqs search queryDB uniref30_db resultDB tmp --num-iterations 3
+
+   # Convert to A3M format
+   mmseqs result2msa queryDB uniref30_db resultDB my_protein.a3m
+   ```
+
+**Method 3: Using HHblits**
+
+HHblits is another popular tool for generating A3M files:
+
+1. **Install HH-suite:**
+   ```bash
+   conda install -c conda-forge -c bioconda hhsuite
+   ```
+
+2. **Download databases:**
+   ```bash
+   # Download UniRef30 or BFD
+   wget https://wwwuser.gwdg.de/~compbiol/uniclust/2020_06/UniRef30_2020_06_hhsuite.tar.gz
+   tar -xzvf UniRef30_2020_06_hhsuite.tar.gz
+   ```
+
+3. **Generate MSA:**
+   ```bash
+   hhblits -i my_protein.fasta \
+           -d /path/to/UniRef30_2020_06 \
+           -oa3m my_protein.a3m \
+           -n 3 \
+           -cpu 8
+   ```
+
+**Method 4: Using Boltz-2's Built-in MSA Generation**
+
+Boltz-2 can automatically generate MSA using the MMseqs2 server:
+
+```bash
+# When running boltz predict, use the --use_msa_server flag
+boltz predict input_files --use_msa_server --out_dir output
+```
+
+This will automatically query the MMseqs2 server to generate MSA for protein chains.
+
+**Best Practices:**
+
+1. **MSA Depth**: Aim for at least 100-1000 aligned sequences for good predictions
+2. **Database Selection**:
+   - UniRef30: Good balance of speed and coverage
+   - BFD: More comprehensive but slower
+   - MGnify: For metagenomics sequences
+3. **Iterations**: Use 2-3 search iterations for better sensitivity
+4. **Filtering**: Remove low-quality sequences (typically done automatically)
+
+**Configure MSA in SynFlowNet-Boltz:**
+
+After generating the A3M file, register it in `synflownet-boltz-launcher/data/target_to_data.yaml`:
+
+```yaml
+MY_PROTEIN:
+  msa_file_path: data/msa_files/my_protein.a3m
+  protein_sequence: TVFHKRYLKKIRDLGEGHFGKVSLYCYDPTNDGTGEMVAVKALKAD...
+```
+
+**Verify MSA Quality:**
+
+Check the generated A3M file:
+```bash
+# Count number of sequences in MSA
+grep -c "^>" my_protein.a3m
+
+# View first few sequences
+head -n 20 my_protein.a3m
+```
+
+A good MSA should have:
+- At least 100+ sequences (deeper is better)
+- Coverage across the entire protein length
+- Diverse sequences from different organisms
+
+**Troubleshooting:**
+
+- **No sequences found**: Try different databases or increase search iterations
+- **Too few sequences**: Use more comprehensive databases like BFD
+- **File format errors**: Ensure proper A3M format with correct headers
+- **Long runtime**: Use local databases instead of public servers for batch processing
 
 ### Step 2: Configure Training
 
